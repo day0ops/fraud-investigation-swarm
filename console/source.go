@@ -93,8 +93,13 @@ func ateStateToActorState(s string) string {
 	return strings.ToLower(s)
 }
 
+// ListActors scopes to this feature's own atespace (matching --atespace
+// <namespace>), deliberately excluding the ate-golden atespace -- golden
+// snapshot actors are always SUSPENDED there and are not real investigations;
+// including them via -A would show a nonzero "active investigations" count
+// on an otherwise idle swarm.
 func (s *kubectlAteActorSource) ListActors(ctx context.Context) ([]Actor, error) {
-	out, err := s.run(ctx, "get", "actors", "-A")
+	out, err := s.run(ctx, "get", "actors", "--atespace", s.namespace)
 	if err != nil {
 		return nil, err
 	}

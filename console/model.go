@@ -1,10 +1,9 @@
 package main
 
 type Actor struct {
-	Name      string `json:"name"`
-	Template  string `json:"template"`
-	State     string `json:"state"`
-	WorkerPod string `json:"workerPod"`
+	Name     string `json:"name"`
+	Template string `json:"template"`
+	State    string `json:"state"`
 }
 
 type SwarmView struct {

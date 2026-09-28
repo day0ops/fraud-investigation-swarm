@@ -16,7 +16,7 @@ export function renderTiles(v: SwarmView): string {
   return v.actors
     .map(
       (a) =>
-        `<div class="tile" title="${a.name} on ${a.workerPod || "unassigned"}" style="background:${stateColor[a.state] || "#30363d"}">${a.template || a.name}</div>`,
+        `<div class="tile" title="${a.name} (${a.state})" style="background:${stateColor[a.state] || "#30363d"}">${a.template || a.name}</div>`,
     )
     .join("");
 }

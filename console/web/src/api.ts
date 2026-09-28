@@ -2,7 +2,6 @@ export interface Actor {
   name: string;
   template: string;
   state: string;
-  workerPod: string;
 }
 export interface SwarmView {
   actors: Actor[];

@@ -44,7 +44,12 @@ func (s *server) handleActors(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	writeJSON(w, SummarizeSwarm(a))
+	workerPods, err := s.actors.WorkerPoolSize(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, SummarizeSwarm(a, workerPods))
 }
 
 func (s *server) handleCaseSpans(w http.ResponseWriter, r *http.Request) {
@@ -159,6 +164,7 @@ func main() {
 		actors: newKubectlAteActorSource(
 			envOr("KUBECTL_ATE_PATH", "/usr/local/bin/kubectl-ate"),
 			envOr("ATE_API_ENDPOINT", "api.ate-system.svc.cluster.local:443"),
+			envOr("ATE_NAMESPACE", "kagent"),
 		),
 		spans:             spanSource,
 		leadEndpoint:      envOr("LEAD_ENDPOINT", ""),

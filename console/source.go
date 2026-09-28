@@ -35,13 +35,14 @@ type SpanSource interface {
 // carry a worker-pod field at all (only `get workers` does), so worker-pod
 // occupancy is fetched separately via WorkerPoolSize.
 type kubectlAteActorSource struct {
-	binPath   string // path to the bundled kubectl-ate binary
-	endpoint  string // e.g. api.ate-system.svc.cluster.local:443
-	namespace string // kagent namespace the fraud-workers WorkerPool lives in
+	binPath        string // path to the bundled kubectl-ate binary
+	endpoint       string // e.g. api.ate-system.svc.cluster.local:443
+	namespace      string // kagent namespace the fraud-workers WorkerPool lives in
+	workerPoolName string // e.g. fraud-workers -- filters WorkerPoolSize to this pool only
 }
 
-func newKubectlAteActorSource(binPath, endpoint, namespace string) *kubectlAteActorSource {
-	return &kubectlAteActorSource{binPath: binPath, endpoint: endpoint, namespace: namespace}
+func newKubectlAteActorSource(binPath, endpoint, namespace, workerPoolName string) *kubectlAteActorSource {
+	return &kubectlAteActorSource{binPath: binPath, endpoint: endpoint, namespace: namespace, workerPoolName: workerPoolName}
 }
 
 type ateMetadata struct {
@@ -71,8 +72,12 @@ type ateActorsResponse struct {
 	Actors []ateActorRecord `json:"actors"`
 }
 
+type ateWorkerRecord struct {
+	WorkerPool string `json:"workerPool"`
+}
+
 type ateWorkersResponse struct {
-	Workers []json.RawMessage `json:"workers"`
+	Workers []ateWorkerRecord `json:"workers"`
 }
 
 func (s *kubectlAteActorSource) run(ctx context.Context, args ...string) ([]byte, error) {
@@ -118,8 +123,11 @@ func (s *kubectlAteActorSource) ListActors(ctx context.Context) ([]Actor, error)
 	return actors, nil
 }
 
-// WorkerPoolSize returns how many worker pods currently exist in namespace --
-// actor records carry no worker-pod field, so this is queried separately.
+// WorkerPoolSize returns how many worker pods belong to this feature's own
+// workerPoolName -- `get workers -n <namespace>` returns every pool sharing
+// that namespace (e.g. kagent-default alongside fraud-workers), so this
+// filters by workerPool rather than trusting the raw count. Actor records
+// carry no worker-pod field at all, so this is queried separately.
 func (s *kubectlAteActorSource) WorkerPoolSize(ctx context.Context) (int, error) {
 	out, err := s.run(ctx, "get", "workers", "-n", s.namespace)
 	if err != nil {
@@ -129,7 +137,13 @@ func (s *kubectlAteActorSource) WorkerPoolSize(ctx context.Context) (int, error)
 	if err := json.Unmarshal(out, &resp); err != nil {
 		return 0, fmt.Errorf("parsing kubectl-ate workers output: %w", err)
 	}
-	return len(resp.Workers), nil
+	count := 0
+	for _, w := range resp.Workers {
+		if w.WorkerPool == s.workerPoolName {
+			count++
+		}
+	}
+	return count, nil
 }
 
 // clickhouseSpanSource reads a case's parent->child agent spans from

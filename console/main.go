@@ -165,6 +165,7 @@ func main() {
 			envOr("KUBECTL_ATE_PATH", "/usr/local/bin/kubectl-ate"),
 			envOr("ATE_API_ENDPOINT", "api.ate-system.svc.cluster.local:443"),
 			envOr("ATE_NAMESPACE", "kagent"),
+			envOr("WORKER_POOL_NAME", "fraud-workers"),
 		),
 		spans:             spanSource,
 		leadEndpoint:      envOr("LEAD_ENDPOINT", ""),

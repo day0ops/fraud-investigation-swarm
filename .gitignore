@@ -1,8 +1,11 @@
 # Build output
 /out/
 *.exe
+dist/
 # Go
 vendor/
+# Node
+node_modules/
 # Editor
 .DS_Store
 .idea/

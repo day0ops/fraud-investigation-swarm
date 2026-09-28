@@ -24,6 +24,7 @@ jobs:
     outputs:
       components: ${{ steps.components.outputs.result }}
       is-release: ${{ steps.release.outputs.result }}
+      console-ui-changed: ${{ steps.filter.outputs.console-ui }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -35,18 +36,23 @@ jobs:
             device-risk-mcp: ['mcp-servers/device-risk-mcp/**', 'fixtures/**']
             typology-mcp: ['mcp-servers/typology-mcp/**', 'fixtures/**']
             alert-driver: ['alert-driver/**', 'fixtures/**']
+            console: ['console/**', 'fixtures/**']
+            console-ui: ['console/web/**']
       - id: release
         run: echo "result=${{ startsWith(github.ref, 'refs/tags/') }}" >> "$GITHUB_OUTPUT"
       - id: components
         env:
-          ALL: '["core-banking-mcp","watchlist-mcp","device-risk-mcp","typology-mcp","alert-driver"]'
+          ALL: '["core-banking-mcp","watchlist-mcp","device-risk-mcp","typology-mcp","alert-driver","console"]'
           FORCE_ALL: ${{ github.event.inputs.force_all == 'true' || steps.release.outputs.result == 'true' }}
           CHANGED: ${{ steps.filter.outputs.changes }}
         run: |
           if [ "$FORCE_ALL" = "true" ]; then
             echo "result=$ALL" >> "$GITHUB_OUTPUT"
           else
-            echo "result=$CHANGED" >> "$GITHUB_OUTPUT"
+            # console-ui is a lint-trigger filter, not a buildable image -- exclude
+            # it here (its own job is gated directly on console-ui-changed).
+            IMAGE_ONLY=$(echo "$CHANGED" | jq -c '[.[] | select(. != "console-ui")]')
+            echo "result=$IMAGE_ONLY" >> "$GITHUB_OUTPUT"
           fi
 
   lint-test-go:
@@ -55,14 +61,34 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: { go-version-file: 'go.work' }
+      # console/main.go's //go:embed all:web/dist needs the SPA built first --
+      # dist/ is gitignored, so a fresh checkout has no web/dist to embed.
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm install && npm run build
+        working-directory: console/web
       - run: gofmt -l . | tee /tmp/fmtdiff && [ ! -s /tmp/fmtdiff ]
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.13.1
           args: >-
-            ./fixtures/... ./mcp-servers/core-banking-mcp/... ./mcp-servers/watchlist-mcp/... ./mcp-servers/device-risk-mcp/... ./mcp-servers/typology-mcp/... ./alert-driver/...
-      - run: mkdir -p /tmp/build-out && go build -o /tmp/build-out/ ./fixtures/... ./mcp-servers/core-banking-mcp/... ./mcp-servers/watchlist-mcp/... ./mcp-servers/device-risk-mcp/... ./mcp-servers/typology-mcp/... ./alert-driver/...
-      - run: go test ./fixtures/... ./mcp-servers/core-banking-mcp/... ./mcp-servers/watchlist-mcp/... ./mcp-servers/device-risk-mcp/... ./mcp-servers/typology-mcp/... ./alert-driver/... -v
+            ./fixtures/... ./mcp-servers/core-banking-mcp/... ./mcp-servers/watchlist-mcp/... ./mcp-servers/device-risk-mcp/... ./mcp-servers/typology-mcp/... ./alert-driver/... ./console/...
+      - run: mkdir -p /tmp/build-out && go build -o /tmp/build-out/ ./fixtures/... ./mcp-servers/core-banking-mcp/... ./mcp-servers/watchlist-mcp/... ./mcp-servers/device-risk-mcp/... ./mcp-servers/typology-mcp/... ./alert-driver/... ./console/...
+      - run: go test ./fixtures/... ./mcp-servers/core-banking-mcp/... ./mcp-servers/watchlist-mcp/... ./mcp-servers/device-risk-mcp/... ./mcp-servers/typology-mcp/... ./alert-driver/... ./console/... -v
+
+  lint-test-ui:
+    if: needs.changes.outputs.console-ui-changed == 'true' || github.event.inputs.force_all == 'true' || needs.changes.outputs.is-release == 'true'
+    needs: changes
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: console/web } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm install
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run build
 
   build-push:
     needs: [changes, lint-test-go]
@@ -94,6 +120,12 @@ jobs:
           # alert-driver lives at the repo root; the MCP servers live under
           # mcp-servers/<name> -- maxdepth 2 from . covers both in one search.
           DIR=$(find . -maxdepth 2 -type d -name "${{ matrix.component }}")
-          IMAGE="${REGISTRY}/${REPO_PATH}/${{ matrix.component }}:${{ steps.tag.outputs.tag }}"
+          # The console directory is named "console" but publishes as
+          # "fraud-ops-console" to match agentic-field-kit's image reference.
+          case "${{ matrix.component }}" in
+            console) IMAGE_NAME="fraud-ops-console" ;;
+            *) IMAGE_NAME="${{ matrix.component }}" ;;
+          esac
+          IMAGE="${REGISTRY}/${REPO_PATH}/${IMAGE_NAME}:${{ steps.tag.outputs.tag }}"
           docker build -f "${DIR}/Dockerfile" -t "$IMAGE" .
           docker push "$IMAGE"

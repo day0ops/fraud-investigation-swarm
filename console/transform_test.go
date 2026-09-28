@@ -4,17 +4,17 @@ import "testing"
 
 func TestSummarizeSwarm(t *testing.T) {
 	actors := []Actor{
-		{Name: "a1", State: "running", WorkerPod: "w1"},
-		{Name: "a2", State: "running", WorkerPod: "w1"},
-		{Name: "a3", State: "suspended", WorkerPod: "w2"},
-		{Name: "a4", State: "completed", WorkerPod: ""},
+		{Name: "a1", State: "running"},
+		{Name: "a2", State: "running"},
+		{Name: "a3", State: "suspended"},
+		{Name: "a4", State: "completed"},
 	}
-	v := SummarizeSwarm(actors)
+	v := SummarizeSwarm(actors, 2)
 	if v.ActiveInvestigations != 3 {
 		t.Errorf("ActiveInvestigations = %d; want 3 (completed excluded)", v.ActiveInvestigations)
 	}
 	if v.WorkerPods != 2 {
-		t.Errorf("WorkerPods = %d; want 2 distinct non-empty pods", v.WorkerPods)
+		t.Errorf("WorkerPods = %d; want 2 (passed through from the caller)", v.WorkerPods)
 	}
 }
 

@@ -1,18 +1,21 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strings"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 )
 
-// ActorSource yields the live swarm actors for the swarm view.
+// ActorSource yields the live swarm actors and worker-pool size for the swarm view.
 type ActorSource interface {
 	ListActors(ctx context.Context) ([]Actor, error)
+	WorkerPoolSize(ctx context.Context) (int, error)
 }
 
 // SpanSource yields a case's orchestration spans for the graph, keyed by the
@@ -25,19 +28,21 @@ type SpanSource interface {
 // kubectlAteActorSource shells out to the kubectl-ate CLI (bundled in this
 // image) rather than hand-writing an ate-api gRPC client. Live-confirmed:
 // from inside the cluster, `kubectl-ate get workers/actors --endpoint
-// api.<ateNamespace>.svc.cluster.local:443` authenticates using the pod's own
-// ServiceAccount token with no extra plumbing. The exact JSON field names for
-// `get actors` are inferred from the `get workers` shape (no actor existed
-// yet to sample directly) -- parsing below is deliberately defensive so an
-// unexpected but plausible shape degrades to an empty Template/WorkerPod
-// rather than an error; tighten once a live actor can be sampled.
+// api.<ateNamespace>.svc.cluster.local:443` authenticates as the `ate-client`
+// ServiceAccount via a TokenRequest -- this feature's own ServiceAccount must
+// be granted `serviceaccounts/token: create` on `ate-client` in ate-system
+// (see the fraud-ops-console feature's RBAC). `get actors` records do not
+// carry a worker-pod field at all (only `get workers` does), so worker-pod
+// occupancy is fetched separately via WorkerPoolSize.
 type kubectlAteActorSource struct {
-	binPath  string // path to the bundled kubectl-ate binary
-	endpoint string // e.g. api.ate-system.svc.cluster.local:443
+	binPath        string // path to the bundled kubectl-ate binary
+	endpoint       string // e.g. api.ate-system.svc.cluster.local:443
+	namespace      string // kagent namespace the fraud-workers WorkerPool lives in
+	workerPoolName string // e.g. fraud-workers -- filters WorkerPoolSize to this pool only
 }
 
-func newKubectlAteActorSource(binPath, endpoint string) *kubectlAteActorSource {
-	return &kubectlAteActorSource{binPath: binPath, endpoint: endpoint}
+func newKubectlAteActorSource(binPath, endpoint, namespace, workerPoolName string) *kubectlAteActorSource {
+	return &kubectlAteActorSource{binPath: binPath, endpoint: endpoint, namespace: namespace, workerPoolName: workerPoolName}
 }
 
 type ateMetadata struct {
@@ -48,25 +53,60 @@ type ateActorStatus struct {
 	State string `json:"state"`
 }
 
-// ateActorRecord covers the field name candidates a kagent.dev/ate.dev actor
-// JSON record may use for its template reference and hosting worker pod --
-// see the kubectlAteActorSource doc comment.
+// ateActorTemplateRef is the actorTemplate object on an actor record --
+// live-confirmed shape: {"atespace": "...", "name": "<template>-<harness>-<revision>"}.
+type ateActorTemplateRef struct {
+	Name string `json:"name"`
+}
+
+// ateActorRecord is the live-confirmed shape of one `kubectl-ate get actors`
+// entry. metadata.name is the actor's own unique id (a UUID), not a template
+// name -- actorTemplate.name is the human-readable template/harness reference.
 type ateActorRecord struct {
-	Metadata      ateMetadata    `json:"metadata"`
-	ActorTemplate string         `json:"actorTemplate"`
-	Template      string         `json:"template"`
-	WorkerPod     string         `json:"workerPod"`
-	Status        ateActorStatus `json:"status"`
+	Metadata      ateMetadata         `json:"metadata"`
+	ActorTemplate ateActorTemplateRef `json:"actorTemplate"`
+	Status        ateActorStatus      `json:"status"`
 }
 
 type ateActorsResponse struct {
 	Actors []ateActorRecord `json:"actors"`
 }
 
-func (s *kubectlAteActorSource) ListActors(ctx context.Context) ([]Actor, error) {
-	out, err := exec.CommandContext(ctx, s.binPath, "get", "actors", "-A", "--endpoint", s.endpoint, "-o", "json").Output() //nolint:gosec // fixed binary, fixed args
+type ateWorkerRecord struct {
+	WorkerPool string `json:"workerPool"`
+}
+
+type ateWorkersResponse struct {
+	Workers []ateWorkerRecord `json:"workers"`
+}
+
+func (s *kubectlAteActorSource) run(ctx context.Context, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, s.binPath, append(args, "--endpoint", s.endpoint, "-o", "json")...) //nolint:gosec // fixed binary, fixed args
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("kubectl-ate get actors: %w", err)
+		return nil, fmt.Errorf("kubectl-ate %v: %w: %s", args, err, stderr.String())
+	}
+	return out, nil
+}
+
+// ateStateToActorState normalizes ate's ACTOR_STATE_RUNNING-style enum values
+// to the lowercase form the console SPA's state-color map expects.
+func ateStateToActorState(s string) string {
+	s = strings.TrimPrefix(s, "ACTOR_STATE_")
+	return strings.ToLower(s)
+}
+
+// ListActors scopes to this feature's own atespace (matching --atespace
+// <namespace>), deliberately excluding the ate-golden atespace -- golden
+// snapshot actors are always SUSPENDED there and are not real investigations;
+// including them via -A would show a nonzero "active investigations" count
+// on an otherwise idle swarm.
+func (s *kubectlAteActorSource) ListActors(ctx context.Context) ([]Actor, error) {
+	out, err := s.run(ctx, "get", "actors", "--atespace", s.namespace)
+	if err != nil {
+		return nil, err
 	}
 	var resp ateActorsResponse
 	if err := json.Unmarshal(out, &resp); err != nil {
@@ -74,18 +114,36 @@ func (s *kubectlAteActorSource) ListActors(ctx context.Context) ([]Actor, error)
 	}
 	actors := make([]Actor, 0, len(resp.Actors))
 	for _, a := range resp.Actors {
-		template := a.ActorTemplate
-		if template == "" {
-			template = a.Template
-		}
 		actors = append(actors, Actor{
-			Name:      a.Metadata.Name,
-			Template:  template,
-			State:     a.Status.State,
-			WorkerPod: a.WorkerPod,
+			Name:     a.Metadata.Name,
+			Template: a.ActorTemplate.Name,
+			State:    ateStateToActorState(a.Status.State),
 		})
 	}
 	return actors, nil
+}
+
+// WorkerPoolSize returns how many worker pods belong to this feature's own
+// workerPoolName -- `get workers -n <namespace>` returns every pool sharing
+// that namespace (e.g. kagent-default alongside fraud-workers), so this
+// filters by workerPool rather than trusting the raw count. Actor records
+// carry no worker-pod field at all, so this is queried separately.
+func (s *kubectlAteActorSource) WorkerPoolSize(ctx context.Context) (int, error) {
+	out, err := s.run(ctx, "get", "workers", "-n", s.namespace)
+	if err != nil {
+		return 0, err
+	}
+	var resp ateWorkersResponse
+	if err := json.Unmarshal(out, &resp); err != nil {
+		return 0, fmt.Errorf("parsing kubectl-ate workers output: %w", err)
+	}
+	count := 0
+	for _, w := range resp.Workers {
+		if w.WorkerPool == s.workerPoolName {
+			count++
+		}
+	}
+	return count, nil
 }
 
 // clickhouseSpanSource reads a case's parent->child agent spans from

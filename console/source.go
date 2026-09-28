@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -64,9 +65,12 @@ type ateActorsResponse struct {
 }
 
 func (s *kubectlAteActorSource) ListActors(ctx context.Context) ([]Actor, error) {
-	out, err := exec.CommandContext(ctx, s.binPath, "get", "actors", "-A", "--endpoint", s.endpoint, "-o", "json").Output() //nolint:gosec // fixed binary, fixed args
+	cmd := exec.CommandContext(ctx, s.binPath, "get", "actors", "-A", "--endpoint", s.endpoint, "-o", "json") //nolint:gosec // fixed binary, fixed args
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("kubectl-ate get actors: %w", err)
+		return nil, fmt.Errorf("kubectl-ate get actors: %w: %s", err, stderr.String())
 	}
 	var resp ateActorsResponse
 	if err := json.Unmarshal(out, &resp); err != nil {

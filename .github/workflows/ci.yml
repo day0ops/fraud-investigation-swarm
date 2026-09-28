@@ -34,11 +34,12 @@ jobs:
             watchlist-mcp: ['mcp-servers/watchlist-mcp/**', 'fixtures/**']
             device-risk-mcp: ['mcp-servers/device-risk-mcp/**', 'fixtures/**']
             typology-mcp: ['mcp-servers/typology-mcp/**', 'fixtures/**']
+            alert-driver: ['alert-driver/**', 'fixtures/**']
       - id: release
         run: echo "result=${{ startsWith(github.ref, 'refs/tags/') }}" >> "$GITHUB_OUTPUT"
       - id: components
         env:
-          ALL: '["core-banking-mcp","watchlist-mcp","device-risk-mcp","typology-mcp"]'
+          ALL: '["core-banking-mcp","watchlist-mcp","device-risk-mcp","typology-mcp","alert-driver"]'
           FORCE_ALL: ${{ github.event.inputs.force_all == 'true' || steps.release.outputs.result == 'true' }}
           CHANGED: ${{ steps.filter.outputs.changes }}
         run: |
@@ -59,9 +60,9 @@ jobs:
         with:
           version: v2.13.1
           args: >-
-            ./fixtures/... ./mcp-servers/core-banking-mcp/... ./mcp-servers/watchlist-mcp/... ./mcp-servers/device-risk-mcp/... ./mcp-servers/typology-mcp/...
-      - run: go build ./fixtures/... ./mcp-servers/core-banking-mcp/... ./mcp-servers/watchlist-mcp/... ./mcp-servers/device-risk-mcp/... ./mcp-servers/typology-mcp/...
-      - run: go test ./fixtures/... ./mcp-servers/core-banking-mcp/... ./mcp-servers/watchlist-mcp/... ./mcp-servers/device-risk-mcp/... ./mcp-servers/typology-mcp/... -v
+            ./fixtures/... ./mcp-servers/core-banking-mcp/... ./mcp-servers/watchlist-mcp/... ./mcp-servers/device-risk-mcp/... ./mcp-servers/typology-mcp/... ./alert-driver/...
+      - run: mkdir -p /tmp/build-out && go build -o /tmp/build-out/ ./fixtures/... ./mcp-servers/core-banking-mcp/... ./mcp-servers/watchlist-mcp/... ./mcp-servers/device-risk-mcp/... ./mcp-servers/typology-mcp/... ./alert-driver/...
+      - run: go test ./fixtures/... ./mcp-servers/core-banking-mcp/... ./mcp-servers/watchlist-mcp/... ./mcp-servers/device-risk-mcp/... ./mcp-servers/typology-mcp/... ./alert-driver/... -v
 
   build-push:
     needs: [changes, lint-test-go]
@@ -89,6 +90,10 @@ jobs:
           fi
       - name: Build and push
         run: |
+          set -euo pipefail
+          # alert-driver lives at the repo root; the MCP servers live under
+          # mcp-servers/<name> -- maxdepth 2 from . covers both in one search.
+          DIR=$(find . -maxdepth 2 -type d -name "${{ matrix.component }}")
           IMAGE="${REGISTRY}/${REPO_PATH}/${{ matrix.component }}:${{ steps.tag.outputs.tag }}"
-          docker build -f mcp-servers/${{ matrix.component }}/Dockerfile -t "$IMAGE" .
+          docker build -f "${DIR}/Dockerfile" -t "$IMAGE" .
           docker push "$IMAGE"

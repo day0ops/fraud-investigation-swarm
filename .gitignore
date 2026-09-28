@@ -1,0 +1,11 @@
+# Build output
+/out/
+*.exe
+# Go
+vendor/
+# Editor
+.DS_Store
+.idea/
+.vscode/
+# Local env
+.env

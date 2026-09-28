@@ -1,0 +1,61 @@
+{
+  "customers": [
+    {"id":"CUST-1001","name":"Elena Rossi","accountId":"ACC-1001","riskRating":"medium","kycStatus":"verified","country":"IT"},
+    {"id":"CUST-1002","name":"Marcus Chen","accountId":"ACC-1002","riskRating":"low","kycStatus":"verified","country":"SG"},
+    {"id":"CUST-1003","name":"Priya Nair","accountId":"ACC-1003","riskRating":"low","kycStatus":"verified","country":"IN"},
+    {"id":"CUST-1004","name":"David Okoro","accountId":"ACC-1004","riskRating":"high","kycStatus":"review","country":"NG"},
+    {"id":"CUST-1005","name":"Sofia Alvarez","accountId":"ACC-1005","riskRating":"low","kycStatus":"verified","country":"ES"},
+    {"id":"CUST-1006","name":"Liam Murphy","accountId":"ACC-1006","riskRating":"medium","kycStatus":"verified","country":"IE"}
+  ],
+  "accounts": [
+    {"id":"ACC-1001","customerId":"CUST-1001","type":"checking","openedDate":"2019-03-11","balance":8450.20,"currency":"EUR"},
+    {"id":"ACC-1002","customerId":"CUST-1002","type":"checking","openedDate":"2021-07-02","balance":15230.00,"currency":"SGD"},
+    {"id":"ACC-1003","customerId":"CUST-1003","type":"savings","openedDate":"2020-01-19","balance":42200.75,"currency":"INR"},
+    {"id":"ACC-1004","customerId":"CUST-1004","type":"checking","openedDate":"2024-11-30","balance":300.00,"currency":"USD"},
+    {"id":"ACC-1005","customerId":"CUST-1005","type":"checking","openedDate":"2018-05-22","balance":6100.10,"currency":"EUR"},
+    {"id":"ACC-1006","customerId":"CUST-1006","type":"checking","openedDate":"2022-09-14","balance":2750.00,"currency":"EUR"}
+  ],
+  "transactions": [
+    {"id":"TX-5001","accountId":"ACC-1001","timestamp":"2026-09-27T02:14:00Z","amount":9200.00,"currency":"EUR","direction":"debit","counterpartyName":"Zarwan Holdings LLC","counterpartyAccount":"IR820540102680020817909002","channel":"wire","country":"IR"},
+    {"id":"TX-5002","accountId":"ACC-1001","timestamp":"2026-09-27T02:16:00Z","amount":8800.00,"currency":"EUR","direction":"debit","counterpartyName":"Zarwan Holdings LLC","counterpartyAccount":"IR820540102680020817909002","channel":"wire","country":"IR"},
+    {"id":"TX-5003","accountId":"ACC-1001","timestamp":"2026-08-15T10:05:00Z","amount":54.20,"currency":"EUR","direction":"debit","counterpartyName":"Supermercato Centrale","counterpartyAccount":"IT60X0542811101000000123456","channel":"card","country":"IT"},
+    {"id":"TX-5101","accountId":"ACC-1004","timestamp":"2026-09-26T21:00:00Z","amount":2900.00,"currency":"USD","direction":"credit","counterpartyName":"Cash Deposit","counterpartyAccount":"","channel":"atm","country":"US"},
+    {"id":"TX-5102","accountId":"ACC-1004","timestamp":"2026-09-26T21:40:00Z","amount":2850.00,"currency":"USD","direction":"credit","counterpartyName":"Cash Deposit","counterpartyAccount":"","channel":"atm","country":"US"},
+    {"id":"TX-5103","accountId":"ACC-1004","timestamp":"2026-09-26T22:15:00Z","amount":2950.00,"currency":"USD","direction":"credit","counterpartyName":"Cash Deposit","counterpartyAccount":"","channel":"atm","country":"US"},
+    {"id":"TX-5201","accountId":"ACC-1003","timestamp":"2026-09-25T09:00:00Z","amount":38000.00,"currency":"INR","direction":"credit","counterpartyName":"Acme Payroll","counterpartyAccount":"IN00ACME0000001","channel":"ach","country":"IN"},
+    {"id":"TX-5301","accountId":"ACC-1006","timestamp":"2026-09-27T08:30:00Z","amount":1200.00,"currency":"EUR","direction":"debit","counterpartyName":"Ryanair","counterpartyAccount":"IE29AIBK93115212345678","channel":"card","country":"IE"}
+  ],
+  "watchlist": [
+    {"name":"Zarwan Holdings LLC","list":"OFAC-SDN","matchType":"exact","program":"IRAN-EO13902"},
+    {"name":"Boris Petrov","list":"EU-CONSOLIDATED","matchType":"exact","program":"RUSSIA"}
+  ],
+  "pep": [
+    {"name":"David Okoro","list":"PEP","matchType":"fuzzy","program":"DOMESTIC-PEP"}
+  ],
+  "deviceSignals": [
+    {"customerId":"CUST-1001","deviceId":"dev-newphone-99","ip":"185.220.101.47","geo":"Tehran, IR","isNewDevice":true,"ipRiskScore":92,"locationVelocityKmh":4200.0},
+    {"customerId":"CUST-1002","deviceId":"dev-known-01","ip":"203.0.113.5","geo":"Singapore, SG","isNewDevice":false,"ipRiskScore":8,"locationVelocityKmh":0.0},
+    {"customerId":"CUST-1005","deviceId":"dev-known-22","ip":"88.20.14.9","geo":"Barcelona, ES","isNewDevice":false,"ipRiskScore":12,"locationVelocityKmh":600.0},
+    {"customerId":"CUST-1006","deviceId":"dev-known-33","ip":"37.228.240.10","geo":"Dublin, IE","isNewDevice":true,"ipRiskScore":15,"locationVelocityKmh":300.0}
+  ],
+  "ipGeo": [
+    {"ip":"185.220.101.47","geo":"Tehran, IR","riskScore":92},
+    {"ip":"203.0.113.5","geo":"Singapore, SG","riskScore":8},
+    {"ip":"88.20.14.9","geo":"Barcelona, ES","riskScore":12},
+    {"ip":"37.228.240.10","geo":"Dublin, IE","riskScore":15}
+  ],
+  "typologies": [
+    {"id":"TYP-ATO","name":"Account Takeover","description":"New device and geo followed by rapid high-value outbound transfers","indicators":["new_device","impossible_travel","rapid_outbound","high_ip_risk"]},
+    {"id":"TYP-SANCTIONS","name":"Sanctions Evasion","description":"Funds routed to a counterparty on a sanctions list","indicators":["sanctioned_counterparty","cross_border_wire"]},
+    {"id":"TYP-STRUCTURING","name":"Structuring","description":"Multiple cash deposits just under the reporting threshold","indicators":["sub_threshold_deposits","rapid_sequence","cash_channel"]},
+    {"id":"TYP-MULE","name":"Money Mule","description":"Recently opened account receiving and forwarding funds","indicators":["new_account","pass_through","high_risk_customer"]}
+  ],
+  "alerts": [
+    {"id":"ALERT-1001","customerId":"CUST-1001","accountId":"ACC-1001","type":"account-takeover","raisedAt":"2026-09-27T02:20:00Z","triggerReason":"Two large wires to a new cross-border payee minutes after a new-device login from a high-risk geo","transactionIds":["TX-5001","TX-5002"],"suspectedTypologyIds":["TYP-ATO","TYP-SANCTIONS"],"heroCase":true},
+    {"id":"ALERT-1002","customerId":"CUST-1004","accountId":"ACC-1004","type":"structuring","raisedAt":"2026-09-26T22:30:00Z","triggerReason":"Three cash deposits just under 3000 USD within 90 minutes","transactionIds":["TX-5101","TX-5102","TX-5103"],"suspectedTypologyIds":["TYP-STRUCTURING","TYP-MULE"],"heroCase":false},
+    {"id":"ALERT-1003","customerId":"CUST-1003","accountId":"ACC-1003","type":"large-credit","raisedAt":"2026-09-25T09:05:00Z","triggerReason":"Large inbound credit flagged by amount threshold","transactionIds":["TX-5201"],"suspectedTypologyIds":[],"heroCase":false},
+    {"id":"ALERT-1004","customerId":"CUST-1002","accountId":"ACC-1002","type":"velocity","raisedAt":"2026-09-27T03:00:00Z","triggerReason":"Card velocity rule tripped on routine spending","transactionIds":[],"suspectedTypologyIds":[],"heroCase":false},
+    {"id":"ALERT-1005","customerId":"CUST-1005","accountId":"ACC-1005","type":"new-geo","raisedAt":"2026-09-27T07:00:00Z","triggerReason":"Login from a new geo on a known device","transactionIds":[],"suspectedTypologyIds":[],"heroCase":false},
+    {"id":"ALERT-1006","customerId":"CUST-1006","accountId":"ACC-1006","type":"new-geo","raisedAt":"2026-09-27T08:35:00Z","triggerReason":"Travel spend from a new device, known travel merchant","transactionIds":["TX-5301"],"suspectedTypologyIds":[],"heroCase":false}
+  ]
+}

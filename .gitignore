@@ -2,6 +2,7 @@
 /out/
 *.exe
 dist/
+/console/console
 # Go
 vendor/
 # Node

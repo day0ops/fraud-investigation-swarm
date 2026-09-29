@@ -4,7 +4,7 @@ go 1.27.0
 
 require (
 	github.com/day0ops/fraud-investigation-swarm/fixtures v0.0.0
-	github.com/modelcontextprotocol/go-sdk v1.6.1
+	github.com/modelcontextprotocol/go-sdk v1.7.0
 )
 
 require (

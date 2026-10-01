@@ -1,20 +1,19 @@
 // Command console serves the Fraud Ops Console: a JSON API over the live
 // swarm plus the embedded Vite SPA. Actor state comes from an ActorSource,
 // case graphs from a SpanSource, and the trigger endpoint starts
-// investigations via the same recipe the alert driver uses (LEAD_ENDPOINT).
+// investigations via kagentInvoker (CreateAgentInstance + A2A SendMessage).
 package main
 
 import (
-	"bytes"
 	"context"
 	"embed"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"sync"
-	"time"
 
 	fx "github.com/day0ops/fraud-investigation-swarm/fixtures"
 )
@@ -30,12 +29,12 @@ func envOr(k, d string) string {
 }
 
 type server struct {
-	actors       ActorSource
-	spans        SpanSource
-	leadEndpoint string
+	actors  ActorSource
+	spans   SpanSource
+	invoker *kagentInvoker
 
 	mu                sync.Mutex
-	alertCorrelations map[string]string // alertID -> ConversationId/TaskId, captured at submit time
+	alertCorrelations map[string]string // alertID -> AgentInstance id, captured at submit time
 }
 
 func (s *server) handleActors(w http.ResponseWriter, r *http.Request) {
@@ -59,8 +58,7 @@ func (s *server) handleCaseSpans(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	if !ok {
 		// Not yet correlated (or submitted before this server started) -- fall
-		// back to the alertID itself in case the invocation recipe ends up
-		// setting the correlation id to it directly.
+		// back to the alertID itself.
 		correlationID = alertID
 	}
 	spans, err := s.spans.CaseSpans(r.Context(), correlationID)
@@ -99,6 +97,9 @@ func (s *server) handleAlerts(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no alerts selected", http.StatusBadRequest)
 		return
 	}
+	// Fired as fast as the handler can loop -- no client-side pacing. Substrate's
+	// atenet-router already queues ("parks") resume attempts under worker-pool
+	// saturation instead of failing fast, so a naive burst is the honest test.
 	for _, id := range ids {
 		if err := s.submit(r.Context(), id); err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
@@ -108,46 +109,30 @@ func (s *server) handleAlerts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"submitted": len(ids)})
 }
 
-// submit starts one investigation for alertID via the lead-investigator
-// invocation recipe. Correlation-id capture is provisional: the exact
-// recipe/response shape is confirmed live in the deployment plan (Plan 2
-// Task 5, blocked pending published images); until then this records
-// alertID -> alertID so handleCaseSpans has a deterministic fallback.
 func (s *server) submit(ctx context.Context, alertID string) error {
-	a, _ := fx.AlertByID(alertID)
-	body, _ := json.Marshal(map[string]any{
-		"alertId": a.ID, "customerId": a.CustomerID, "accountId": a.AccountID,
-		"type": a.Type, "triggerReason": a.TriggerReason,
-	})
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.leadEndpoint, bytes.NewReader(body))
+	a, ok := fx.AlertByID(alertID)
+	if !ok {
+		return fmt.Errorf("unknown alert %s", alertID)
+	}
+	instanceID, err := s.invoker.submit(ctx, alertID, buildTask(a))
 	if err != nil {
 		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	correlationID := alertID
-	var out struct {
-		ConversationID string `json:"conversationId"`
-		TaskID         string `json:"taskId"`
-	}
-	if json.NewDecoder(resp.Body).Decode(&out) == nil {
-		if out.ConversationID != "" {
-			correlationID = out.ConversationID
-		} else if out.TaskID != "" {
-			correlationID = out.TaskID
-		}
 	}
 	s.mu.Lock()
-	s.alertCorrelations[alertID] = correlationID
+	s.alertCorrelations[alertID] = instanceID
 	s.mu.Unlock()
 	return nil
+}
+
+// buildTask renders an alert as the natural-language opening task handed to
+// fraud-lead-investigator -- it has no knowledge of the case beyond this.
+func buildTask(a fx.Alert) string {
+	return fmt.Sprintf(
+		"New fraud alert %s for customer %s (account %s).\nAlert type: %s.\nTrigger reason: %s.\n\n"+
+			"Investigate this case using your specialists, then give me a disposition (CLEAR or ESCALATE) "+
+			"with the supporting evidence and a written case narrative.",
+		a.ID, a.CustomerID, a.AccountID, a.Type, a.TriggerReason,
+	)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -155,20 +140,37 @@ func writeJSON(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+func mustEnv(k string) string {
+	v := os.Getenv(k)
+	if v == "" {
+		log.Fatalf("%s is required", k)
+	}
+	return v
+}
+
 func main() {
 	spanSource, err := newClickhouseSpanSource(envOr("CLICKHOUSE_DSN", ""))
 	if err != nil {
 		log.Fatalf("clickhouse: %v", err)
 	}
+	namespace := envOr("ATE_NAMESPACE", "kagent")
 	s := &server{
 		actors: newKubectlAteActorSource(
 			envOr("KUBECTL_ATE_PATH", "/usr/local/bin/kubectl-ate"),
 			envOr("ATE_API_ENDPOINT", "api.ate-system.svc.cluster.local:443"),
-			envOr("ATE_NAMESPACE", "kagent"),
+			namespace,
 			envOr("WORKER_POOL_NAME", "fraud-workers"),
 		),
-		spans:             spanSource,
-		leadEndpoint:      envOr("LEAD_ENDPOINT", ""),
+		spans: spanSource,
+		invoker: newKagentInvoker(
+			envOr("KAGENT_GRPC_TARGET", "kagent-controller."+namespace+".svc.cluster.local:8083"),
+			namespace,
+			envOr("FRAUD_SWARM_HARNESS", "fraud-swarm"),
+			envOr("FRAUD_LEAD_AGENT_TEMPLATE", "fraud-lead-investigator"),
+			mustEnv("KEYCLOAK_TOKEN_URL"),
+			mustEnv("KEYCLOAK_CLIENT_ID"),
+			mustEnv("KEYCLOAK_CLIENT_SECRET"),
+		),
 		alertCorrelations: map[string]string{},
 	}
 	mux := http.NewServeMux()

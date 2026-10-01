@@ -35,14 +35,13 @@ jobs:
             watchlist-mcp: ['mcp-servers/watchlist-mcp/**', 'fixtures/**']
             device-risk-mcp: ['mcp-servers/device-risk-mcp/**', 'fixtures/**']
             typology-mcp: ['mcp-servers/typology-mcp/**', 'fixtures/**']
-            alert-driver: ['alert-driver/**', 'fixtures/**']
             console: ['console/**', 'fixtures/**']
             console-ui: ['console/web/**']
       - id: release
         run: echo "result=${{ startsWith(github.ref, 'refs/tags/') }}" >> "$GITHUB_OUTPUT"
       - id: components
         env:
-          ALL: '["core-banking-mcp","watchlist-mcp","device-risk-mcp","typology-mcp","alert-driver","console"]'
+          ALL: '["core-banking-mcp","watchlist-mcp","device-risk-mcp","typology-mcp","console"]'
           FORCE_ALL: ${{ github.event.inputs.force_all == 'true' || steps.release.outputs.result == 'true' }}
           CHANGED: ${{ steps.filter.outputs.changes }}
         run: |
@@ -72,9 +71,9 @@ jobs:
         with:
           version: v2.13.1
           args: >-
-            ./fixtures/... ./mcp-servers/core-banking-mcp/... ./mcp-servers/watchlist-mcp/... ./mcp-servers/device-risk-mcp/... ./mcp-servers/typology-mcp/... ./alert-driver/... ./console/...
-      - run: mkdir -p /tmp/build-out && go build -o /tmp/build-out/ ./fixtures/... ./mcp-servers/core-banking-mcp/... ./mcp-servers/watchlist-mcp/... ./mcp-servers/device-risk-mcp/... ./mcp-servers/typology-mcp/... ./alert-driver/... ./console/...
-      - run: go test ./fixtures/... ./mcp-servers/core-banking-mcp/... ./mcp-servers/watchlist-mcp/... ./mcp-servers/device-risk-mcp/... ./mcp-servers/typology-mcp/... ./alert-driver/... ./console/... -v
+            ./fixtures/... ./mcp-servers/core-banking-mcp/... ./mcp-servers/watchlist-mcp/... ./mcp-servers/device-risk-mcp/... ./mcp-servers/typology-mcp/... ./console/...
+      - run: mkdir -p /tmp/build-out && go build -o /tmp/build-out/ ./fixtures/... ./mcp-servers/core-banking-mcp/... ./mcp-servers/watchlist-mcp/... ./mcp-servers/device-risk-mcp/... ./mcp-servers/typology-mcp/... ./console/...
+      - run: go test ./fixtures/... ./mcp-servers/core-banking-mcp/... ./mcp-servers/watchlist-mcp/... ./mcp-servers/device-risk-mcp/... ./mcp-servers/typology-mcp/... ./console/... -v
 
   lint-test-ui:
     if: needs.changes.outputs.console-ui-changed == 'true' || github.event.inputs.force_all == 'true' || needs.changes.outputs.is-release == 'true'
@@ -117,7 +116,7 @@ jobs:
       - name: Build and push
         run: |
           set -euo pipefail
-          # alert-driver lives at the repo root; the MCP servers live under
+          # console lives at the repo root; the MCP servers live under
           # mcp-servers/<name> -- maxdepth 2 from . covers both in one search.
           DIR=$(find . -maxdepth 2 -type d -name "${{ matrix.component }}")
           # The console directory is named "console" but publishes as

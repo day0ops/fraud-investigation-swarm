@@ -1,7 +1,6 @@
 go 1.27.0
 
 use (
-	./alert-driver
 	./console
 	./fixtures
 	./mcp-servers/core-banking-mcp

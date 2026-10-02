@@ -17,7 +17,6 @@ This repository holds the application tier: the mock MCP data servers, the alert
 | `mcp-servers/watchlist-mcp/` | MCP server: sanctions and PEP screening |
 | `mcp-servers/device-risk-mcp/` | MCP server: device fingerprint and IP/geo risk |
 | `mcp-servers/typology-mcp/` | MCP server: fraud/AML typology matching |
-| `alert-driver/` | CLI to trigger single or burst fraud investigations |
 | `console/` | Fraud Ops Console: Go backend (embeds the built SPA) + Vite frontend |
 
 See [docs/DEMO.md](docs/DEMO.md) for the presenter run of show.

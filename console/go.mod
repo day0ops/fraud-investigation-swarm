@@ -6,13 +6,14 @@ require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.48.0
 	github.com/a2aproject/a2a-go/v2 v2.5.0
 	github.com/day0ops/fraud-investigation-swarm/fixtures v0.0.0
-	github.com/kagent-dev/kagent/go v0.0.0
+	github.com/kagent-dev/kagent/go v0.0.0-20260923214551-375fe73a0c1d
 	google.golang.org/grpc v1.83.2
 )
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260709200747-435963d16310.1 // indirect
 	github.com/ClickHouse/ch-go v0.74.0 // indirect
+	github.com/agent-substrate/substrate v0.3.0 // indirect
 	github.com/andybalholm/brotli v1.2.2 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/go-faster/city v1.0.1 // indirect
@@ -23,8 +24,8 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.27 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
-	go.opentelemetry.io/otel v1.44.0 // indirect
-	go.opentelemetry.io/otel/trace v1.44.0 // indirect
+	go.opentelemetry.io/otel v1.45.0 // indirect
+	go.opentelemetry.io/otel/trace v1.45.0 // indirect
 	golang.org/x/mod v0.40.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
@@ -36,7 +37,3 @@ require (
 )
 
 replace github.com/day0ops/fraud-investigation-swarm/fixtures => ../fixtures
-
-// AgentInstanceService/A2A support isn't on kagent-dev/kagent's public main yet --
-// this fork has it (same code path the live-confirmed gRPC probe used).
-replace github.com/kagent-dev/kagent/go => github.com/day0ops/kagent/go v0.0.0-20260906100133-ec1cb9789d95

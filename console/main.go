@@ -154,6 +154,18 @@ func main() {
 		log.Fatalf("clickhouse: %v", err)
 	}
 	namespace := envOr("ATE_NAMESPACE", "kagent")
+	invoker, err := newKagentInvoker(
+		envOr("KAGENT_GRPC_TARGET", "kagent-controller."+namespace+".svc.cluster.local:8083"),
+		namespace,
+		envOr("FRAUD_SWARM_HARNESS", "fraud-swarm"),
+		envOr("FRAUD_LEAD_AGENT_TEMPLATE", "fraud-lead-investigator"),
+		mustEnv("KEYCLOAK_TOKEN_URL"),
+		mustEnv("KEYCLOAK_CLIENT_ID"),
+		mustEnv("KEYCLOAK_CLIENT_SECRET"),
+	)
+	if err != nil {
+		log.Fatalf("kagent invoker: %v", err)
+	}
 	s := &server{
 		actors: newKubectlAteActorSource(
 			envOr("KUBECTL_ATE_PATH", "/usr/local/bin/kubectl-ate"),
@@ -161,16 +173,8 @@ func main() {
 			namespace,
 			envOr("WORKER_POOL_NAME", "fraud-workers"),
 		),
-		spans: spanSource,
-		invoker: newKagentInvoker(
-			envOr("KAGENT_GRPC_TARGET", "kagent-controller."+namespace+".svc.cluster.local:8083"),
-			namespace,
-			envOr("FRAUD_SWARM_HARNESS", "fraud-swarm"),
-			envOr("FRAUD_LEAD_AGENT_TEMPLATE", "fraud-lead-investigator"),
-			mustEnv("KEYCLOAK_TOKEN_URL"),
-			mustEnv("KEYCLOAK_CLIENT_ID"),
-			mustEnv("KEYCLOAK_CLIENT_SECRET"),
-		),
+		spans:             spanSource,
+		invoker:           invoker,
 		alertCorrelations: map[string]string{},
 	}
 	mux := http.NewServeMux()

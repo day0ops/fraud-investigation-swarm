@@ -29,16 +29,28 @@ type kagentInvoker struct {
 	clientID      string
 	clientSecret  string
 
-	instances *kagentclient.AgentInstanceClient
-	a2a       *kagentclient.A2AClient
+	api *kagentclient.APIClientSet
+	gw  *kagentclient.GatewayClientSet
 
 	mu          sync.Mutex
 	token       string
 	tokenExpiry time.Time
 }
 
-func newKagentInvoker(grpcTarget, namespace, harness, agentTemplate, tokenURL, clientID, clientSecret string) *kagentInvoker {
-	base := kagentclient.NewBaseClient("", kagentclient.WithGRPCTarget(grpcTarget))
+// newKagentInvoker dials grpcTarget (bare host:port, e.g.
+// kagent-controller.kagent.svc.cluster.local:8083) for both the control-plane
+// API (CreateAgentInstance) and the A2A gateway -- confirmed live (2026-10-02)
+// that kagent-enterprise serves both off the same port.
+func newKagentInvoker(grpcTarget, namespace, harness, agentTemplate, tokenURL, clientID, clientSecret string) (*kagentInvoker, error) {
+	url := "http://" + grpcTarget
+	api, err := kagentclient.NewAPI(url)
+	if err != nil {
+		return nil, fmt.Errorf("create kagent API client: %w", err)
+	}
+	gw, err := kagentclient.NewGateway(url)
+	if err != nil {
+		return nil, fmt.Errorf("create kagent gateway client: %w", err)
+	}
 	return &kagentInvoker{
 		namespace:     namespace,
 		harness:       harness,
@@ -46,9 +58,9 @@ func newKagentInvoker(grpcTarget, namespace, harness, agentTemplate, tokenURL, c
 		tokenURL:      tokenURL,
 		clientID:      clientID,
 		clientSecret:  clientSecret,
-		instances:     kagentclient.NewAgentInstanceClient(base),
-		a2a:           kagentclient.NewA2AClient(base),
-	}
+		api:           api,
+		gw:            gw,
+	}, nil
 }
 
 // submit creates one AgentInstance for alertID and sends it task as the
@@ -59,10 +71,9 @@ func (k *kagentInvoker) submit(ctx context.Context, alertID, task string) (strin
 	if err != nil {
 		return "", fmt.Errorf("fetch access token: %w", err)
 	}
-	createResp, err := k.instances.CreateAgentInstance(authCtx, &apiv1alpha1.CreateAgentInstanceRequest{
-		Namespace:     k.namespace,
-		Harness:       k.harness,
-		AgentTemplate: k.agentTemplate,
+	createResp, err := k.api.AgentInstance.CreateAgentInstance(authCtx, &apiv1alpha1.CreateAgentInstanceRequest{
+		Harness:       &apiv1alpha1.ResourceReference{Namespace: k.namespace, Name: k.harness},
+		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: k.namespace, Name: k.agentTemplate},
 		RequestId:     alertID,
 	})
 	if err != nil {
@@ -70,7 +81,7 @@ func (k *kagentInvoker) submit(ctx context.Context, alertID, task string) (strin
 	}
 	instanceID := createResp.GetAgentInstance().GetId()
 
-	a2aClient, err := k.a2a.ForAgentInstance(authCtx, k.namespace, instanceID)
+	a2aClient, err := k.gw.A2A.ForAgentInstance(authCtx, instanceID)
 	if err != nil {
 		return "", fmt.Errorf("a2a client for agent instance %s: %w", instanceID, err)
 	}

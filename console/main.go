@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	fx "github.com/day0ops/fraud-investigation-swarm/fixtures"
 )
@@ -35,6 +36,15 @@ type server struct {
 
 	mu                sync.Mutex
 	alertCorrelations map[string]string // alertID -> AgentInstance id, captured at submit time
+	burstRun          atomic.Uint64
+}
+
+// nextBurstRun returns a fresh run number, used to make each "Simulate fraud
+// campaign" click create genuinely new AgentInstances instead of idempotently
+// reusing earlier ones (CreateAgentInstance's idempotency is keyed on the
+// request id handed to it; see handleAlerts).
+func (s *server) nextBurstRun() uint64 {
+	return s.burstRun.Add(1)
 }
 
 func (s *server) handleActors(w http.ResponseWriter, r *http.Request) {
@@ -97,24 +107,50 @@ func (s *server) handleAlerts(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no alerts selected", http.StatusBadRequest)
 		return
 	}
+
+	// Single mode keeps using the raw alertID as the request id, so repeat
+	// clicks of "Submit hero case" idempotently resume the same investigation
+	// rather than spawning duplicates. Burst mode instead stamps each call
+	// with this run's own number: cycling past the fixture count (or
+	// re-running the campaign) must spin up fresh AgentInstances, not
+	// idempotently return earlier ones, or "count" would never actually
+	// produce more than len(fixtures) concurrent investigations.
+	var runPrefix string
+	if req.Mode == "burst" {
+		runPrefix = fmt.Sprintf("run%d-", s.nextBurstRun())
+	}
+
 	// Fired as fast as the handler can loop -- no client-side pacing. Substrate's
 	// atenet-router already queues ("parks") resume attempts under worker-pool
 	// saturation instead of failing fast, so a naive burst is the honest test.
-	for _, id := range ids {
-		if err := s.submit(r.Context(), id); err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
+	// One alert's failure doesn't abort the rest -- a burst is explicitly a
+	// resilience-under-load test, not an all-or-nothing submission.
+	submitted := 0
+	var errs []string
+	for i, id := range ids {
+		requestID := id
+		if runPrefix != "" {
+			requestID = fmt.Sprintf("%s%s-%d", runPrefix, id, i)
 		}
+		if err := s.submit(r.Context(), id, requestID); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", id, err))
+			continue
+		}
+		submitted++
 	}
-	writeJSON(w, map[string]any{"submitted": len(ids)})
+	resp := map[string]any{"submitted": submitted, "requested": len(ids)}
+	if len(errs) > 0 {
+		resp["errors"] = errs
+	}
+	writeJSON(w, resp)
 }
 
-func (s *server) submit(ctx context.Context, alertID string) error {
+func (s *server) submit(ctx context.Context, alertID, requestID string) error {
 	a, ok := fx.AlertByID(alertID)
 	if !ok {
 		return fmt.Errorf("unknown alert %s", alertID)
 	}
-	instanceID, err := s.invoker.submit(ctx, alertID, buildTask(a))
+	instanceID, err := s.invoker.submit(ctx, requestID, buildTask(a))
 	if err != nil {
 		return err
 	}

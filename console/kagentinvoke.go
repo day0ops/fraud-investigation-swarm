@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	kagentclient "github.com/kagent-dev/kagent/go/api/client"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"google.golang.org/grpc/metadata"
@@ -81,12 +82,25 @@ func (k *kagentInvoker) submit(ctx context.Context, alertID, task string) (strin
 	}
 	instanceID := createResp.GetAgentInstance().GetId()
 
-	a2aClient, err := k.gw.A2A.ForAgentInstance(authCtx, instanceID)
+	// The A2A client doesn't read grpc-context metadata for auth -- its gRPC
+	// transport rebuilds outgoing metadata from scratch out of ServiceParams
+	// (a2agrpc/v1's withGRPCMetadata calls metadata.NewOutgoingContext, which
+	// replaces rather than merges). kagent's own ForAgentInstance interceptor
+	// seeds ServiceParams with only the instance-id routing header, so the
+	// bearer token has to be attached via AttachServiceParams instead -- its
+	// own interceptor then appends on top of it, not over it.
+	token, err := k.accessToken(ctx)
+	if err != nil {
+		return "", fmt.Errorf("fetch access token: %w", err)
+	}
+	a2aCtx := a2aclient.AttachServiceParams(ctx, a2aclient.ServiceParams{"authorization": {"Bearer " + token}})
+
+	a2aClient, err := k.gw.A2A.ForAgentInstance(a2aCtx, instanceID)
 	if err != nil {
 		return "", fmt.Errorf("a2a client for agent instance %s: %w", instanceID, err)
 	}
 	msg := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart(task))
-	if _, err := a2aClient.SendMessage(authCtx, &a2a.SendMessageRequest{Message: msg}); err != nil {
+	if _, err := a2aClient.SendMessage(a2aCtx, &a2a.SendMessageRequest{Message: msg}); err != nil {
 		return "", fmt.Errorf("send message to agent instance %s: %w", instanceID, err)
 	}
 	return instanceID, nil
